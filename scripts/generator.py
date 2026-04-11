@@ -69,7 +69,8 @@ class MapGenerator:
                     
                     notes.append({
                         'title': fm.get('title', path.stem),
-                        'content': body[:2000], # Optimized for embedding window
+                        'rel_path': str(path.relative_to(self.vault_path)),
+                        'content': body[:2000], 
                         'folder': path.parent.name if path.parent != self.vault_path else "Root"
                     })
         return notes
