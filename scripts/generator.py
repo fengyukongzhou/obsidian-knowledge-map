@@ -23,12 +23,10 @@ class MapGenerator:
         self.style = style
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Tokenizer initialization
+        # Tokenizer & ONNX Session initialization
         self.tokenizer = Tokenizer.from_file(str(self.model_dir / "tokenizer.json"))
         self.tokenizer.enable_padding(direction='right', pad_id=1, pad_type_id=0, pad_token='<pad>')
         self.tokenizer.enable_truncation(max_length=1024)
-        
-        # ONNX Config
         self.onnx_path = str(self.model_dir / "onnx/model_quantized.onnx")
         self._init_session()
 
@@ -39,15 +37,17 @@ class MapGenerator:
             del self.session
             gc.collect()
         options = ort.SessionOptions()
-        options.enable_cpu_mem_arena = False
+        options.enable_cpu_mem_arena = False # Memory safety for large vaults
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         options.intra_op_num_threads = 2
         self.session = ort.InferenceSession(self.onnx_path, options, providers=['CPUExecutionProvider'])
 
     def scan_notes(self):
+        """Universal vault scanner: only skips system/attachment folders starting with '_'"""
         notes = []
         for root, dirs, files in os.walk(self.vault_path):
-            dirs[:] = [d for d in dirs if not d.startswith('_')]
+            # Skip hidden/attachment folders like _attachments or .obsidian
+            dirs[:] = [d for d in dirs if not d.startswith(('_', '.'))]
             for file in files:
                 if file.endswith('.md'):
                     path = Path(root) / file
@@ -55,17 +55,22 @@ class MapGenerator:
                         with open(path, 'r', encoding='utf-8') as f:
                             content = f.read()
                     except: continue
+                    
+                    # Generic Frontmatter Parsing
                     fm_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
                     fm = {}
                     if fm_match:
-                        try: fm = yaml.safe_load(fm_match.group(1))
+                        try: fm = yaml.safe_load(fm_match.group(1)) or {}
                         except: fm = {}
                     body = content[fm_match.end():] if fm_match else content
+                    
+                    # Basic noise filter: skip very short notes
                     if len(body) < 100: continue
+                    
                     notes.append({
                         'title': fm.get('title', path.stem),
-                        'content': body[:2000], 
-                        'folder': path.parent.name
+                        'content': body[:2000], # Optimized for embedding window
+                        'folder': path.parent.name if path.parent != self.vault_path else "Root"
                     })
         return notes
 
@@ -75,14 +80,19 @@ class MapGenerator:
         for i in range(0, len(texts), 4):
             batch_idx = i // 4 + 1
             if batch_idx % 10 == 0 or batch_idx == 1 or batch_idx == total:
-                print(f"  Batch {batch_idx}/{total}...")
+                print(f"  Progress: Batch {batch_idx}/{total}...")
+            
+            # Auto-recycling to prevent memory leaks
             if batch_idx % 50 == 0:
                 self._init_session()
+                
             batch = texts[i:i+4]
             enc = self.tokenizer.encode_batch(batch)
             ids = np.array([e.ids for e in enc], dtype=np.int64)
             mask = np.array([e.attention_mask for e in enc], dtype=np.int64)
             out = self.session.run(None, {"input_ids": ids, "attention_mask": mask})[0]
+            
+            # Mean Pooling & Normalization
             mask_exp = np.expand_dims(mask, -1).astype(float)
             emb = np.sum(out * mask_exp, 1) / np.maximum(mask_exp.sum(1), 1e-9)
             emb /= np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-9)
@@ -94,14 +104,17 @@ class MapGenerator:
         coord_cache = self.output_dir / "coords.npy"
         notes = self.scan_notes()
         num_notes = len(notes)
+        
         if emb_cache.exists():
             embs = np.load(emb_cache)
         else:
             embs = self.encode([n['content'] for n in notes])
             np.save(emb_cache, embs)
+            
         if coord_cache.exists():
             coords = np.load(coord_cache)
         else:
+            # Adaptive UMAP Parameters
             n_neighbors = int(np.clip(np.sqrt(num_notes) * 2, 15, 100))
             min_dist = 0.1 if num_notes < 500 else 0.05
             reducer = umap.UMAP(n_components=2, metric='cosine', n_neighbors=n_neighbors, min_dist=min_dist, random_state=42)
@@ -109,16 +122,19 @@ class MapGenerator:
             coords = (coords - coords.min(axis=0)) / (coords.max(axis=0) - coords.min(axis=0))
             np.save(coord_cache, coords)
         
+        # KDE Density estimation
         kde = gaussian_kde(coords.T)
         X, Y = np.meshgrid(np.linspace(0, 1, 300), np.linspace(0, 1, 300))
         Z = kde(np.vstack([X.ravel(), Y.ravel()])).reshape(300, 300)
         Z = (Z - Z.min()) / (Z.max() - Z.min())
         
+        # Peak Detection
         data_max = maximum_filter(Z, size=15, mode='constant')
         mask = (Z == data_max) & (Z > 0.1)
         peak_pts = np.column_stack(np.where(mask))
         peaks = sorted([{'val': Z[r,c], 'x': X[r,c], 'y': Y[r,c]} for r, c in peak_pts], key=lambda x: x['val'], reverse=True)
         
+        # Dynamic Peak Merging
         merge_dist = 0.12 if num_notes < 500 else 0.08
         max_p = 6 if num_notes < 1000 else 10
         merged = []
@@ -127,6 +143,7 @@ class MapGenerator:
                 merged.append(p)
                 if len(merged) >= max_p: break
         
+        # Extract cluster neighbors for Agent to summarize
         peak_neighbor_titles = []
         for p in merged:
             dists = cdist(np.array([[p['x'], p['y']]]), coords).flatten()
@@ -147,36 +164,40 @@ class MapGenerator:
         
         plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS']
         fig, ax = plt.subplots(figsize=(14, 14), dpi=150)
+        
+        # Styling based on user choice
         paper_color = '#f4ecd8' if self.style == 'davinci' else '#050505'
         ink_color = '#4e342e' if self.style == 'davinci' else '#FFFFFF'
         fig.patch.set_facecolor(paper_color)
         ax.set_facecolor(paper_color)
         cmap = mcolors.LinearSegmentedColormap.from_list('map', 
             ['#d0d0e6', '#e6d096', '#966432'] if self.style == 'davinci' else ['#0a0a0a', '#007aff', '#00ffff'])
+        
         ax.contourf(X, Y, Z, levels=20, cmap=cmap, alpha=0.6)
         ax.contour(X, Y, Z, levels=20, colors=ink_color, linewidths=0.5, alpha=0.3)
         
+        # Universal Categorical Coloring
         folders = [n['folder'] for n in state['notes']]
         unique_f = sorted(list(set(folders)))
-        color_map = {'01-Sources': '#FF2D55', '02-Permanent': '#007AFF', '03-Resources': '#34C759', '04-Output': '#FF9500'}
-        std_colors = plt.cm.get_cmap('tab10').colors
-        c_idx = 0
-        for f in unique_f:
-            if f not in color_map:
-                color_map[f] = mcolors.to_hex(std_colors[c_idx % 10])
-                c_idx += 1
-        for f in unique_f:
+        # Use a high-quality categorical color map (tab20)
+        color_palette = plt.cm.get_cmap('tab20').colors
+        for i, f in enumerate(unique_f):
             m = np.array([n == f for n in folders])
-            if any(m): ax.scatter(coords[m, 0], coords[m, 1], s=20, c=color_map[f], alpha=0.7, label=f, edgecolors='none')
+            if any(m):
+                ax.scatter(coords[m, 0], coords[m, 1], s=20, 
+                           c=[color_palette[i % 20]], alpha=0.7, label=f, edgecolors='none')
         
+        # Peak Annotations
         roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X']
         for i, (p, t) in enumerate(zip(state['peaks'], themes)):
             ax.add_artist(plt.Circle((p['x'], p['y']), 0.02, color=ink_color, fill=False, alpha=0.8))
             ax.text(p['x'], p['y'], roman[i], ha='center', va='center', color=ink_color, fontweight='bold')
             ax.text(p['x']+0.03, p['y']+0.01, t, color=ink_color, fontsize=10, 
                     bbox=dict(boxstyle='round,pad=0.3', facecolor=paper_color, edgecolor=ink_color, alpha=0.6))
+        
         ax.set_title("OBSIDIAN KNOWLEDGE MAP", fontsize=32, color=ink_color, pad=40, fontfamily='serif')
-        ax.legend(loc='lower left', frameon=True, facecolor=paper_color, edgecolor=ink_color)
+        # Limit legend size if too many folders
+        ax.legend(loc='lower left', frameon=True, facecolor=paper_color, edgecolor=ink_color, fontsize=8, ncol=2 if len(unique_f)>10 else 1)
         ax.axis('off')
         plt.tight_layout()
         plt.savefig(self.output_dir / "knowledge_map.png")
@@ -188,9 +209,14 @@ if __name__ == "__main__":
     parser.add_argument("--vault"); parser.add_argument("--model"); parser.add_argument("--output")
     parser.add_argument("--style", default='davinci'); parser.add_argument("--themes")
     args = parser.parse_args()
+    
     gen = MapGenerator(args.vault, args.model, args.output, args.style)
     if args.mode == 'analyze':
         print(json.dumps(gen.analyze_geography(), ensure_ascii=False))
     elif args.mode == 'render':
-        themes = json.loads(args.themes) if args.themes else json.load(open(gen.output_dir / "themes.json", 'r', encoding='utf-8'))
+        if args.themes:
+            themes = json.loads(args.themes)
+        else:
+            with open(gen.output_dir / "themes.json", 'r', encoding='utf-8') as f:
+                themes = json.load(f)
         gen.render(themes)
