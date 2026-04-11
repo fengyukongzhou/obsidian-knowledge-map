@@ -77,12 +77,14 @@ class MapGenerator:
         coord_cache = self.output_dir / "coords.npy"
         
         notes = self.scan_notes()
+        num_notes = len(notes)
+        print(f"Analyzing {num_notes} notes. Adapting parameters...")
         
         if emb_cache.exists():
             print("Loading cached embeddings...")
             embs = np.load(emb_cache)
         else:
-            print(f"Embedding {len(notes)} notes...")
+            print(f"Embedding notes...")
             embs = self.encode([n['content'] for n in notes])
             np.save(emb_cache, embs)
             
@@ -90,8 +92,18 @@ class MapGenerator:
             print("Loading cached coordinates...")
             coords = np.load(coord_cache)
         else:
-            print("Reducing dimensions (UMAP)...")
-            reducer = umap.UMAP(n_components=2, metric='cosine', random_state=42)
+            # DYNAMIC SCALING
+            n_neighbors = int(np.clip(np.sqrt(num_notes) * 2, 15, 100))
+            min_dist = 0.1 if num_notes < 500 else 0.05
+            print(f"Reducing dimensions (UMAP: n_neighbors={n_neighbors}, min_dist={min_dist})...")
+            
+            reducer = umap.UMAP(
+                n_components=2, 
+                metric='cosine', 
+                n_neighbors=n_neighbors,
+                min_dist=min_dist,
+                random_state=42
+            )
             coords = reducer.fit_transform(embs)
             coords = (coords - coords.min(axis=0)) / (coords.max(axis=0) - coords.min(axis=0))
             np.save(coord_cache, coords)
@@ -102,17 +114,21 @@ class MapGenerator:
         Z = kde(np.vstack([X.ravel(), Y.ravel()])).reshape(300, 300)
         Z = (Z - Z.min()) / (Z.max() - Z.min())
         
-        # Find Peaks
+        # Find Peaks with Adaptive Merging
         data_max = maximum_filter(Z, size=15, mode='constant')
         mask = (Z == data_max) & (Z > 0.1)
         peak_pts = np.column_stack(np.where(mask))
         peaks = sorted([{'val': Z[r,c], 'x': X[r,c], 'y': Y[r,c]} for r, c in peak_pts], key=lambda x: x['val'], reverse=True)
         
+        merge_dist = 0.12 if num_notes < 500 else 0.08
+        max_peaks = 6 if num_notes < 1000 else 10
+        print(f"Detecting peaks (merge_dist={merge_dist}, max={max_peaks})...")
+        
         merged = []
         for p in peaks:
-            if not any(np.sqrt((p['x']-mp['x'])**2 + (p['y']-mp['y'])**2) < 0.12 for mp in merged):
+            if not any(np.sqrt((p['x']-mp['x'])**2 + (p['y']-mp['y'])**2) < merge_dist for mp in merged):
                 merged.append(p)
-                if len(merged) >= 6: break
+                if len(merged) >= max_peaks: break
         
         peak_neighbor_titles = []
         for p in merged:
