@@ -23,11 +23,29 @@ class MapGenerator:
         self.style = style
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Tokenizer & ONNX
+        # Tokenizer initialization
         self.tokenizer = Tokenizer.from_file(str(self.model_dir / "tokenizer.json"))
         self.tokenizer.enable_padding(direction='right', pad_id=1, pad_type_id=0, pad_token='<pad>')
         self.tokenizer.enable_truncation(max_length=1024)
-        self.session = onnxruntime.InferenceSession(str(self.model_dir / "onnx/model_quantized.onnx"), providers=['CPUExecutionProvider'])
+        
+        # ONNX Config
+        self.onnx_path = str(self.model_dir / "onnx/model_quantized.onnx")
+        self._init_session()
+
+    def _init_session(self):
+        import onnxruntime as ort
+        import gc
+        if hasattr(self, 'session'):
+            del self.session
+            gc.collect()
+        
+        # Memory optimization options
+        options = ort.SessionOptions()
+        options.enable_cpu_mem_arena = False # Disable arena to prevent fragmentation crashes
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.intra_op_num_threads = 2 # Limit threads to prevent CPU spikes
+        
+        self.session = ort.InferenceSession(self.onnx_path, options, providers=['CPUExecutionProvider'])
 
     def scan_notes(self):
         notes = []
@@ -47,9 +65,10 @@ class MapGenerator:
                         except: fm = {}
                     body = content[fm_match.end():] if fm_match else content
                     if len(body) < 100: continue
+                    # Pre-truncate to save memory during tokenization
                     notes.append({
                         'title': fm.get('title', path.stem),
-                        'content': body[:2000],
+                        'content': body[:2000], 
                         'folder': path.parent.name
                     })
         return notes
@@ -61,6 +80,12 @@ class MapGenerator:
             batch_idx = i // 4 + 1
             if batch_idx % 10 == 0 or batch_idx == 1 or batch_idx == total:
                 print(f"  Batch {batch_idx}/{total}...")
+            
+            # SESSION RECYCLING: Refresh every 50 batches to clear leaks
+            if batch_idx % 50 == 0:
+                print("  Recycling ONNX session...")
+                self._init_session()
+                
             batch = texts[i:i+4]
             enc = self.tokenizer.encode_batch(batch)
             ids = np.array([e.ids for e in enc], dtype=np.int64)
