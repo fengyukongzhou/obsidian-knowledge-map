@@ -185,8 +185,11 @@ class MapGenerator:
         for i, f in enumerate(unique_f):
             m = np.array([n == f for n in folders])
             if any(m):
+                # Add a thin edge for better visibility on dark backgrounds
+                edge_color = 'white' if self.style == 'contemporary' else 'none'
                 ax.scatter(coords[m, 0], coords[m, 1], s=20, 
-                           c=[color_palette[i % 20]], alpha=0.7, label=f, edgecolors='none')
+                           c=[color_palette[i % 20]], alpha=0.7, label=f, 
+                           edgecolors=edge_color, linewidths=0.2)
         
         # Peak Annotations
         roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X']
@@ -198,7 +201,8 @@ class MapGenerator:
         
         ax.set_title("OBSIDIAN KNOWLEDGE MAP", fontsize=32, color=ink_color, pad=40, fontfamily='serif')
         # Limit legend size if too many folders
-        ax.legend(loc='lower left', frameon=True, facecolor=paper_color, edgecolor=ink_color, fontsize=8, ncol=2 if len(unique_f)>10 else 1)
+        leg = ax.legend(loc='lower left', frameon=True, facecolor=paper_color, edgecolor=ink_color, fontsize=8, ncol=2 if len(unique_f)>10 else 1)
+        plt.setp(leg.get_texts(), color=ink_color) # Explicitly set text color
         ax.axis('off')
         plt.tight_layout()
         plt.savefig(self.output_dir / "knowledge_map.png")
