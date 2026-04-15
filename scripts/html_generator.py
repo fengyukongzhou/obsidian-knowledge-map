@@ -5,7 +5,7 @@ import os
 import urllib.parse
 from pathlib import Path
 
-def generate_immersive_html(output_dir, vault_name, themes):
+def generate_immersive_html(output_dir, vault_name, themes, style='davinci'):
     output_dir = Path(output_dir)
     state_path = output_dir / "map_state.json"
     
@@ -21,15 +21,39 @@ def generate_immersive_html(output_dir, vault_name, themes):
     Z = np.array(state['Z'])
     peaks = state['peaks']
     
-    # Palette
-    bg_color = '#000000'
-    contour_colors = [
-        [0, 'rgba(0,0,0,0)'],
-        [0.1, 'rgba(30,50,100,0.15)'],
-        [0.3, 'rgba(50,100,200,0.3)'],
-        [0.6, 'rgba(0,150,255,0.5)'],
-        [1, 'rgba(0,255,255,0.7)']
-    ]
+    # Palette definition based on style
+    if style == 'davinci':
+        bg_color = '#f4ecd8' # Parchment
+        ink_color = '#4e342e' # Deep Sepia
+        text_alpha = 'rgba(78, 52, 46, 0.4)'
+        contour_colors = [
+            [0, 'rgba(244, 236, 216, 0)'],
+            [0.1, 'rgba(208, 208, 230, 0.2)'],
+            [0.3, 'rgba(230, 208, 150, 0.4)'],
+            [0.6, 'rgba(150, 100, 50, 0.5)'],
+            [1, 'rgba(78, 52, 46, 0.7)']
+        ]
+        line_color = 'rgba(78, 52, 46, 0.15)'
+        grid_color = 'rgba(78, 52, 46, 0.05)'
+        legend_bg = 'rgba(244, 236, 216, 0.7)'
+        hover_bg = 'rgba(255, 255, 255, 0.95)'
+        hover_text = '#4e342e'
+    else: # contemporary
+        bg_color = '#050505'
+        ink_color = '#FFFFFF'
+        text_alpha = 'rgba(255, 255, 255, 0.25)'
+        contour_colors = [
+            [0, 'rgba(0,0,0,0)'],
+            [0.1, 'rgba(30,50,100,0.15)'],
+            [0.3, 'rgba(50,100,200,0.3)'],
+            [0.6, 'rgba(0,150,255,0.5)'],
+            [1, 'rgba(0,255,255,0.7)']
+        ]
+        line_color = 'rgba(255,255,255,0.06)'
+        grid_color = 'rgba(255,255,255,0.02)'
+        legend_bg = 'rgba(20,20,20,0.4)'
+        hover_bg = 'rgba(10,10,10,0.95)'
+        hover_text = '#FFFFFF'
     
     # 1. Base Figure
     fig = go.Figure()
@@ -42,7 +66,7 @@ def generate_immersive_html(output_dir, vault_name, themes):
         colorscale=contour_colors,
         showscale=False,
         contours=dict(coloring='heatmap', showlines=True),
-        line=dict(width=0.4, color='rgba(255,255,255,0.06)'),
+        line=dict(width=0.4, color=line_color),
         ncontours=80,
         hoverinfo='skip'
     ))
@@ -50,7 +74,6 @@ def generate_immersive_html(output_dir, vault_name, themes):
     # 3. Dynamic Clusters
     folders = [n['folder'] for n in notes]
     unique_f = sorted(list(set(folders)))
-    # Use tab20 for high-quality variety
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
     color_palette = plt.cm.get_cmap('tab20').colors
@@ -65,6 +88,8 @@ def generate_immersive_html(output_dir, vault_name, themes):
         titles = [n['title'] for n in folder_notes]
         urls = [f"obsidian://open?vault={urllib.parse.quote(vault_name)}&file={urllib.parse.quote(n['rel_path'])}" for n in folder_notes]
         
+        edge_color = 'rgba(255,255,255,0.3)' if style == 'contemporary' else 'rgba(0,0,0,0.1)'
+        
         fig.add_trace(go.Scatter(
             x=x, y=y,
             mode='markers',
@@ -72,7 +97,7 @@ def generate_immersive_html(output_dir, vault_name, themes):
                 size=6, 
                 color=mcolors.to_hex(color_palette[i % 20]), 
                 opacity=0.9,
-                line=dict(width=0.5, color='rgba(255,255,255,0.2)')
+                line=dict(width=0.5, color=edge_color)
             ),
             name=f,
             text=titles,
@@ -85,7 +110,7 @@ def generate_immersive_html(output_dir, vault_name, themes):
         fig.add_trace(go.Scatter(
             x=[p['x']], y=[p['y']],
             mode='text',
-            text=[f"<span style='color:rgba(255,255,255,0.25); letter-spacing:4px; font-weight:100;'>{t.upper()}</span>"],
+            text=[f"<span style='color:{text_alpha}; letter-spacing:4px; font-weight:100;'>{t.upper()}</span>"],
             textposition="top center",
             hoverinfo='skip',
             showlegend=False
@@ -99,9 +124,9 @@ def generate_immersive_html(output_dir, vault_name, themes):
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[0, 1]),
         showlegend=True,
         legend=dict(
-            font=dict(color='rgba(255,255,255,0.5)', size=10, family="Inter, sans-serif"),
-            bgcolor='rgba(20,20,20,0.4)',
-            bordercolor='rgba(255,255,255,0.1)',
+            font=dict(color=ink_color, size=10, family="serif" if style == 'davinci' else "sans-serif"),
+            bgcolor=legend_bg,
+            bordercolor=line_color,
             borderwidth=1,
             orientation='h',
             yanchor='bottom',
@@ -114,9 +139,9 @@ def generate_immersive_html(output_dir, vault_name, themes):
         clickmode='event',
         dragmode=False,
         hoverlabel=dict(
-            bgcolor='rgba(10,10,10,0.95)', 
-            bordercolor='rgba(255,255,255,0.1)',
-            font=dict(color='#FFF', size=12, family="Inter, sans-serif")
+            bgcolor=hover_bg, 
+            bordercolor=line_color,
+            font=dict(color=hover_text, size=12, family="sans-serif")
         ),
         autosize=True
     )
@@ -126,6 +151,8 @@ def generate_immersive_html(output_dir, vault_name, themes):
         full_html=False, 
         config={'displayModeBar': False, 'responsive': True}
     )
+    
+    brand_font = "'Times New Roman', serif" if style == 'davinci' else "'Inter', sans-serif"
     
     full_html = f"""
     <!DOCTYPE html>
@@ -141,8 +168,8 @@ def generate_immersive_html(output_dir, vault_name, themes):
             .plotly-graph-div {{ width: 100vw !important; height: 100vh !important; }}
             #brand {{
                 position: absolute; top: 40px; left: 50px;
-                color: rgba(255,255,255,0.2);
-                font-family: 'Inter', sans-serif;
+                color: {text_alpha};
+                font-family: {brand_font};
                 font-weight: 100; font-size: 14px;
                 letter-spacing: 12px;
                 pointer-events: none; z-index: 100;
@@ -169,7 +196,7 @@ def generate_immersive_html(output_dir, vault_name, themes):
     html_path = output_dir / "knowledge_map.html"
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(full_html)
-    print(f"Interactive HTML saved to {html_path}")
+    print(f"Interactive HTML ({style} style) saved to {html_path}")
 
 if __name__ == "__main__":
     import argparse
@@ -177,6 +204,7 @@ if __name__ == "__main__":
     parser.add_argument("--output")
     parser.add_argument("--vault_name")
     parser.add_argument("--themes")
+    parser.add_argument("--style", default='davinci')
     args = parser.parse_args()
     
     if args.themes:
@@ -185,4 +213,4 @@ if __name__ == "__main__":
         with open(Path(args.output) / "themes.json", 'r', encoding='utf-8') as f:
             themes = json.load(f)
             
-    generate_immersive_html(args.output, args.vault_name, themes)
+    generate_immersive_html(args.output, args.vault_name, themes, args.style)

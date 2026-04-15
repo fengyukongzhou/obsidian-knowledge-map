@@ -17,20 +17,21 @@
 -   **Dual Artistic Styles**:
     -   🖋️ **Da Vinci**: Parchment texture, sepia ink, and delicate quill-like contour lines.
     -   🌌 **Contemporary**: Dark gallery theme, glowing electric contours, and minimalist typography.
--   **Interactive Navigation**: Generates a full-screen interactive HTML map where every "star" (note) is clickable and opens directly in your Obsidian vault via URI.
+-   **Interactive Navigation**: Generates a full-screen interactive HTML map where every "star" (note) is clickable and opens directly in your Obsidian vault via URI. Now supports both **Da Vinci** and **Contemporary** styles.
 
-### 🚀 How it Works (v3.0 Workflow)
+### 🚀 How it Works (v1.3 Workflow)
 
 1.  **Spatial Computation**: The script calculates text embeddings locally using ONNX and identifies 6 key semantic clusters (peaks).
 2.  **Semantic Synthesis**: The AI Agent reads the titles of notes near each peak and synthesizes a high-level category name (e.g., "AI Engineering", "Financial Wisdom").
-3.  **Artistic Rendering**: The final map is rendered with smooth contours and Roman numeral annotations.
+3.  **Artistic Rendering**: The final map is rendered as a PNG with smooth contours.
+4.  **Interactive Enhancement**: Optionally generates a Plotly-based HTML map with synchronized styles and deep-linking.
 
 ### 🛠️ Installation
 
 1.  Clone this repository into your Gemini CLI skills directory:
     `git clone https://github.com/fengyukongzhou/obsidian-knowledge-map .gemini/skills/obsidian-knowledge-map`
 2.  Ensure you have the required dependencies:
-    `pip install onnxruntime umap-learn tokenizers matplotlib scipy numpy PyYAML`
+    `pip install onnxruntime umap-learn tokenizers matplotlib scipy numpy PyYAML plotly`
 
 ---
 
@@ -47,20 +48,21 @@
 -   **双重艺术风格**：
     -   🖋️ **达·芬奇手稿**：羊皮纸质感、深褐色铁胆墨水、羽毛笔触感的等高线。
     -   🌌 **当代艺术**：深色画廊风格、电光等高线、极简无衬线字体。
--   **全屏交互联动**：生成交互式 HTML 地图，点击地图上的“星点”即可通过 `obsidian://` 协议直接唤起 Obsidian 并定位到笔记。
+-   **全屏交互联动**：生成交互式 HTML 地图，点击地图上的“星点”即可通过 `obsidian://` 协议直接唤起 Obsidian 并定位到笔记。HTML 现在同步支持 **达·芬奇** 与 **当代艺术** 两种风格切换。
 
-### 🚀 运行逻辑 (v3.0 工作流)
+### 🚀 运行逻辑 (v1.3 工作流)
 
 1.  **空间计算**：脚本在本地通过 ONNX 运行嵌入模型，识别出 6 个核心语义聚类中心。
 2.  **语义合成**：AI Agent 读取山峰附近的笔记标题，提炼出高度概括的领域标签（如“量化交易”、“数字化生存”）。
-3.  **艺术渲染**：将 AI 洞察回传脚本，生成带有精准标注和细腻等高线的 PNG 地图。
+3.  **艺术渲染**：生成带有精准标注和细腻等高线的 PNG 静态地图。
+4.  **交互增强**：可选项，基于 Plotly 生成具备同步审美风格且可点击跳转的 HTML 交互地图。
 
 ### 🛠️ 安装方法
 
 1.  将本仓库克隆至您的 Gemini CLI skills 目录：
     `git clone https://github.com/fengyukongzhou/obsidian-knowledge-map .gemini/skills/obsidian-knowledge-map`
 2.  安装必要依赖：
-    `pip install onnxruntime umap-learn tokenizers matplotlib scipy numpy PyYAML`
+    `pip install onnxruntime umap-learn tokenizers matplotlib scipy numpy PyYAML plotly`
 
 ---
 
